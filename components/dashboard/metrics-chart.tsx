@@ -1,4 +1,3 @@
-
 'use client'
 
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell } from 'recharts'
@@ -76,7 +75,7 @@ export function MetricsChart({ type }: { type: 'revenue' | 'traffic' }) {
             cy="50%"
             outerRadius={100}
             dataKey="value"
-            label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+            label={({ name, percent }) => `${name}: ${percent ? (percent * 100).toFixed(0) : 0}%`}
             labelLine={false}
           >
             {trafficData.map((entry, index) => (
