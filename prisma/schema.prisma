@@ -1,0 +1,513 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/nexus-business-assistant/app/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// NextAuth.js required models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Main User model with business context
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  company       String?
+  role          String?   @default("BUSINESS_OWNER")
+  industry      String?
+  timezone      String?   @default("UTC")
+  
+  // Trial period fields
+  trialStartDate    DateTime? 
+  trialEndDate      DateTime?
+  isTrialActive     Boolean   @default(false)
+  trialNotified3Days Boolean  @default(false)
+  trialNotifiedLastDay Boolean @default(false)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts          Account[]
+  sessions          Session[]
+  subscription      Subscription?
+  documents         Document[]
+  files             File[]
+  folders           Folder[]
+  transactions      Transaction[]
+  tasks             Task[]
+  marketingCampaigns MarketingCampaign[]
+  integrations      Integration[]
+  chatHistory       ChatMessage[]
+  businessMetrics   BusinessMetric[]
+  recommendations   Recommendation[]
+  contentGenerated  GeneratedContent[]
+}
+
+// Subscription Management
+model Subscription {
+  id                 String           @id @default(cuid())
+  userId             String           @unique
+  status             SubscriptionStatus @default(ACTIVE)
+  plan               String           @default("BUSINESS_PRO")
+  price              Float            @default(39.00)
+  currency           String           @default("USD")
+  billingCycle       String           @default("MONTHLY")
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean          @default(false)
+  stripeCustomerId   String?
+  stripeSubscriptionId String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+  PAST_DUE
+  TRIALING
+}
+
+// Document Management with AI Classification
+model Document {
+  id               String     @id @default(cuid())
+  userId           String
+  title            String
+  filename         String
+  fileUrl          String
+  fileSize         Int
+  mimeType         String
+  category         DocumentCategory?
+  tags             String[]
+  content          String?    @db.Text
+  summary          String?    @db.Text
+  extractedData    Json?
+  aiClassification Json?
+  isArchived       Boolean    @default(false)
+  uploadedAt       DateTime   @default(now())
+  lastAccessed     DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category])
+  @@index([userId, uploadedAt])
+}
+
+enum DocumentCategory {
+  CONTRACT
+  INVOICE
+  RECEIPT
+  REPORT
+  PRESENTATION
+  PROPOSAL
+  LEGAL
+  FINANCIAL
+  MARKETING
+  OTHER
+}
+
+// Financial Module
+model Transaction {
+  id          String            @id @default(cuid())
+  userId      String
+  amount      Float
+  currency    String            @default("USD")
+  type        TransactionType
+  category    String
+  description String
+  reference   String?
+  vendor      String?
+  taxAmount   Float?           @default(0)
+  date        DateTime
+  dueDate     DateTime?
+  status      TransactionStatus @default(COMPLETED)
+  attachments String[]
+  tags        String[]
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([userId, type])
+  @@index([userId, category])
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+// Calendar and Task Management
+model Task {
+  id          String     @id @default(cuid())
+  userId      String
+  title       String
+  description String?    @db.Text
+  status      TaskStatus @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  category    String?
+  dueDate     DateTime?
+  startDate   DateTime?
+  endDate     DateTime?
+  isAllDay    Boolean    @default(false)
+  reminders   Json[]     @default([])
+  assignedTo  String?
+  tags        String[]
+  metadata    Json?
+  aiGenerated Boolean    @default(false)
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, dueDate])
+  @@index([userId, priority])
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// Marketing Center
+model MarketingCampaign {
+  id          String         @id @default(cuid())
+  userId      String
+  name        String
+  description String?        @db.Text
+  type        CampaignType
+  status      CampaignStatus @default(DRAFT)
+  platform    String[]
+  targetAudience Json?
+  budget      Float?
+  startDate   DateTime?
+  endDate     DateTime?
+  goals       Json?
+  metrics     Json?
+  content     GeneratedContent[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, type])
+}
+
+enum CampaignType {
+  EMAIL
+  SOCIAL_MEDIA
+  BLOG
+  SEO
+  PPC
+  CONTENT_MARKETING
+  INFLUENCER
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+// AI-Generated Content
+model GeneratedContent {
+  id          String      @id @default(cuid())
+  userId      String
+  campaignId  String?
+  type        ContentType
+  title       String
+  content     String      @db.Text
+  prompt      String?     @db.Text
+  brandVoice  Json?
+  seoKeywords String[]
+  status      ContentStatus @default(DRAFT)
+  metadata    Json?
+  performance Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign MarketingCampaign? @relation(fields: [campaignId], references: [id])
+
+  @@index([userId, type])
+  @@index([userId, status])
+}
+
+enum ContentType {
+  BLOG_POST
+  SOCIAL_POST
+  EMAIL
+  AD_COPY
+  PRODUCT_DESCRIPTION
+  PRESS_RELEASE
+  NEWSLETTER
+  LANDING_PAGE
+  VIDEO_SCRIPT
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  SCHEDULED
+  ARCHIVED
+}
+
+// External Integrations
+model Integration {
+  id           String            @id @default(cuid())
+  userId       String
+  service      IntegrationType
+  name         String
+  status       IntegrationStatus @default(INACTIVE)
+  credentials  Json?             // Encrypted credentials
+  settings     Json?
+  lastSync     DateTime?
+  errorMessage String?
+  metadata     Json?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, service])
+}
+
+enum IntegrationType {
+  GOOGLE_DRIVE
+  DROPBOX
+  ONEDRIVE
+  GOOGLE_ANALYTICS
+  STRIPE
+  QUICKBOOKS
+  HUBSPOT
+  SALESFORCE
+  SLACK
+  ZOOM
+  CALENDLY
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  EXPIRED
+}
+
+// AI Chat History
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  role      String   // 'user' or 'assistant'
+  content   String   @db.Text
+  context   Json?    // Additional context for the message
+  sessionId String?
+  timestamp DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sessionId])
+  @@index([userId, timestamp])
+}
+
+// Business Analytics and KPIs
+model BusinessMetric {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  category  String
+  value     Float
+  unit      String?
+  date      DateTime
+  source    String?  // Where the metric came from
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, name, date])
+  @@index([userId, category])
+}
+
+// AI Recommendations
+model Recommendation {
+  id          String               @id @default(cuid())
+  userId      String
+  title       String
+  description String               @db.Text
+  category    RecommendationCategory
+  priority    TaskPriority         @default(MEDIUM)
+  status      RecommendationStatus @default(PENDING)
+  impact      String?              // Expected impact/ROI
+  effort      String?              // Required effort
+  deadline    DateTime?
+  actions     Json[]               // Suggested actions
+  metadata    Json?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, priority])
+}
+
+enum RecommendationCategory {
+  MARKETING
+  SALES
+  FINANCE
+  OPERATIONS
+  STRATEGY
+  CONTENT
+  SEO
+  AUTOMATION
+}
+
+enum RecommendationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  DISMISSED
+}
+
+// File Manager Models
+model Folder {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  parentId    String?
+  path        String
+  color       String?  @default("#3B82F6")
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent      Folder?  @relation("FolderParent", fields: [parentId], references: [id])
+  children    Folder[] @relation("FolderParent")
+  files       File[]
+
+  @@index([userId, parentId])
+  @@index([userId, path])
+}
+
+model File {
+  id               String        @id @default(cuid())
+  userId           String
+  folderId         String?
+  originalName     String
+  fileName         String        // Generated unique filename
+  fileUrl          String
+  fileSize         Int
+  mimeType         String
+  extension        String
+  
+  // AI Analysis fields
+  analysisStatus   AnalysisStatus @default(PENDING)
+  extractedText    String?       @db.Text
+  summary          String?       @db.Text
+  keyTopics        String[]
+  suggestedTags    String[]
+  suggestedFolder  String?
+  aiCategories     Json?
+  sentiment        String?
+  language         String?
+  confidenceScore  Float?
+  
+  // Metadata
+  tags             String[]
+  isStarred        Boolean       @default(false)
+  isArchived       Boolean       @default(false)
+  lastAccessed     DateTime?
+  downloadCount    Int           @default(0)
+  
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder           Folder?       @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  @@index([userId, folderId])
+  @@index([userId, analysisStatus])
+  @@index([userId, createdAt])
+  @@index([userId, fileName])
+}
+
+enum AnalysisStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
